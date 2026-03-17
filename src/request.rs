@@ -1,12 +1,21 @@
-use std::time::Duration;
+use reqwest::header::{HeaderMap, HeaderValue};
+use std::fs;
 
 use log::{info, warn};
 
 use crate::Result;
 use crate::error::ScraperError;
-use crate::useragent::random_user_agent;
+use crate::useragent;
 
-pub async fn run(query: &str) -> Result<String> {
+fn is_blocked(html: &str) -> bool {
+    html.contains("/httpservice/retry/enablejs")
+        || html.contains("challenge_version")
+        || html.contains("SG_SS")
+        || html.contains("anomaly.js")
+        || html.contains("bots use DuckDuckGo")
+}
+
+pub async fn run(query: &str, user_agent_index: Option<usize>) -> Result<String> {
     info!("Fetching search results for: {}", query);
 
     if query.is_empty() {
@@ -21,21 +30,29 @@ pub async fn run(query: &str) -> Result<String> {
         ));
     }
 
-    let url = format!(
-        "https://www.google.com/search?q={}",
-        urlencoding::encode(query)
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "User-Agent",
+        HeaderValue::from_static(useragent::get_user_agent(user_agent_index.unwrap_or(0))),
     );
-    info!("Request URL: {}", url);
+    headers.insert(
+        "Accept",
+        HeaderValue::from_static("text/html,application/xhtml+xml"),
+    );
+    headers.insert(
+        "Accept-Language",
+        HeaderValue::from_static("en-US,en;q=0.9"),
+    );
 
     let client = reqwest::Client::builder()
-        .user_agent(random_user_agent())
-        .timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(10))
-        .pool_max_idle_per_host(10)
+        .default_headers(headers)
         .build()?;
 
-    let response = client.get(&url).send().await?;
-    info!("Response status: {}", response.status());
+    let response = client
+        .get("https://duckduckgo.com/html/")
+        .query(&[("q", query), ("hl", "en"), ("num", "10")])
+        .send()
+        .await?;
 
     if !response.status().is_success() {
         warn!("HTTP error: {}", response.status());
@@ -45,6 +62,16 @@ pub async fn run(query: &str) -> Result<String> {
         )));
     }
 
+    let text = response.text().await?;
+    if is_blocked(&text) {
+        warn!("Google is blocking requests - received CAPTCHA page");
+        let _ = fs::write("request_debug_html.html", text);
+        info!("Saved HTML to request_debug_html.html for inspection");
+        return Err(ScraperError::Parse(
+            "Google is blocking requests - received CAPTCHA page".to_string(),
+        ));
+    }
+
     info!("Successfully fetched search results");
-    response.text().await.map_err(ScraperError::from)
+    Ok(text)
 }

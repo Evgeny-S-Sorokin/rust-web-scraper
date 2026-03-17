@@ -11,6 +11,9 @@ type Result<T> = std::result::Result<T, error::ScraperError>;
 #[derive(Parser)]
 struct Args {
     query: String,
+    /// User agent index (0-4), defaults to 0 if not specified
+    #[arg(short, long)]
+    user_agent: Option<usize>,
 }
 
 #[tokio::main]
@@ -19,7 +22,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     info!("Starting search for query: {}", args.query);
 
-    let html = request::run(&args.query).await?;
+    let html = request::run(&args.query, args.user_agent).await?;
     let results = parser::run(&html)?;
 
     if results.is_empty() {
