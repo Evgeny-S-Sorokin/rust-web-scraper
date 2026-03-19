@@ -49,7 +49,7 @@ pub async fn run(query: &str, user_agent_index: Option<usize>) -> Result<String>
         .build()?;
 
     let response = client
-        .get("https://duckduckgo.com/html/")
+        .get("https://www.google.com/search")
         .query(&[("q", query), ("hl", "en"), ("num", "10")])
         .send()
         .await?;
