@@ -1,3 +1,5 @@
+use reqwest::Url;
+use reqwest::cookie::Jar;
 use reqwest::header::{HeaderMap, HeaderValue};
 use std::fs;
 
@@ -8,11 +10,7 @@ use crate::error::ScraperError;
 use crate::useragent;
 
 fn is_blocked(html: &str) -> bool {
-    html.contains("/httpservice/retry/enablejs")
-        || html.contains("challenge_version")
-        || html.contains("SG_SS")
-        || html.contains("anomaly.js")
-        || html.contains("bots use DuckDuckGo")
+    html.contains("Your privacy choices") || html.contains("consent-page")
 }
 
 pub async fn run(query: &str, user_agent_index: Option<usize>) -> Result<String> {
@@ -37,20 +35,31 @@ pub async fn run(query: &str, user_agent_index: Option<usize>) -> Result<String>
     );
     headers.insert(
         "Accept",
-        HeaderValue::from_static("text/html,application/xhtml+xml"),
+        HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
     );
     headers.insert(
         "Accept-Language",
         HeaderValue::from_static("en-US,en;q=0.9"),
     );
+    headers.insert(
+        "Accept-Encoding",
+        HeaderValue::from_static("gzip, deflate, br"),
+    );
+
+    let jar = Jar::default();
+    let url = Url::parse("https://search.yahoo.com").unwrap();
+    let sb = "v=1&vm=p&fl=1&vl=lang_en&pn=10&rw=new&userset=1";
+    jar.add_cookie_str(&format!("sB={}", sb), &url);
 
     let client = reqwest::Client::builder()
         .default_headers(headers)
+        .cookie_provider(std::sync::Arc::new(jar))
+        .timeout(std::time::Duration::from_secs(10))
         .build()?;
 
     let response = client
-        .get("https://duckduckgo.com/html/")
-        .query(&[("q", query), ("hl", "en"), ("num", "10")])
+        .get("https://search.yahoo.com/search")
+        .query(&[("p", query), ("iscqry", "")])
         .send()
         .await?;
 
@@ -64,11 +73,11 @@ pub async fn run(query: &str, user_agent_index: Option<usize>) -> Result<String>
 
     let text = response.text().await?;
     if is_blocked(&text) {
-        warn!("Google is blocking requests - received CAPTCHA page");
+        warn!("Engine is blocking requests - received blocker page");
         let _ = fs::write("request_debug_html.html", text);
         info!("Saved HTML to request_debug_html.html for inspection");
         return Err(ScraperError::Parse(
-            "Google is blocking requests - received CAPTCHA page".to_string(),
+            "Engine is blocking requests - received blocker page".to_string(),
         ));
     }
 

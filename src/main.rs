@@ -32,7 +32,11 @@ async fn main() -> Result<()> {
     }
 
     for r in results {
-        println!("Title: {}\nLink: {}\n", r.title, r.link);
+        println!("Title: {}\nLink: {}", r.title, r.link);
+        if let Some(content) = r.content {
+            println!("Content: {}", content);
+        }
+        println!();
     }
 
     Ok(())
